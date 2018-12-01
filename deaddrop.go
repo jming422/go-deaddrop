@@ -4,20 +4,100 @@ import (
 	"bufio"
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/hmac"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
+	"flag"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 )
 
-func errCheck(e error) {
-	if e != nil {
-		panic(fmt.Sprintln("Encountered an error:", e))
+func promptForPlaintext() []byte {
+	input := bufio.NewReader(os.Stdin)
+	var (
+		raw string
+		e   error
+	)
+
+	fmt.Print("Enter a string to encrypt> ")
+	for needInput := true; needInput; {
+		if raw, e = input.ReadString('\n'); e != nil {
+			fmt.Println("Error reading input string!", e)
+		} else {
+			needInput = false
+		}
 	}
+
+	return []byte(strings.TrimSpace(raw))
+}
+
+func parseKey(input string) []byte {
+	key, e := hex.DecodeString(input)
+	if e != nil {
+		panic(fmt.Sprintln("Error parsing your encryption key! Please provide a string of even length with only hexadecimal characters."))
+	}
+
+	return key
+}
+
+func randomKey() []byte {
+	key := make([]byte, 32) //Using a 32-byte key causes Go to use AES-256
+	_, e := rand.Read(key)
+	if e != nil {
+		panic(fmt.Sprintln("Error generating AES key!", e))
+	}
+	fmt.Println("Generated random encryption key.")
+
+	return key
+}
+
+func randomNonce() []byte {
+	nonce := make([]byte, 12) //12 is Go's gcmStandardNonceSize
+	_, e := rand.Read(nonce)
+	if e != nil {
+		panic(fmt.Sprintln("Error generating MAC key!", e))
+	}
+
+	return nonce
+}
+
+func Encrypt(plaintext, key, nonce []byte) []byte {
+	aesCipher, e := aes.NewCipher(key)
+	if e != nil {
+		panic(fmt.Sprintln("Error creating AES cipher!", e))
+	}
+
+	aesgcm, e := cipher.NewGCM(aesCipher)
+	if e != nil {
+		panic(fmt.Sprintln("Error creating GCM cipher!", e))
+	}
+
+	fmt.Print("Encrypting...")
+	ciphertext := aesgcm.Seal(nil, nonce, plaintext, nil)
+	fmt.Println(" done.")
+
+	return ciphertext
+}
+
+func Decrypt(ciphertext, key, nonce []byte) []byte {
+	aesCipher, e := aes.NewCipher(key)
+	if e != nil {
+		panic(fmt.Sprintln("Error creating AES cipher!", e))
+	}
+
+	aesgcm, e := cipher.NewGCM(aesCipher)
+	if e != nil {
+		panic(fmt.Sprintln("Error creating GCM cipher!", e))
+	}
+
+	fmt.Print("Decrypting ...")
+	plaintext, e := aesgcm.Open(nil, nonce, ciphertext, nil)
+	if e != nil {
+		panic(fmt.Sprintln("Error decrypting!", e))
+	}
+	fmt.Println(" done.")
+
+	return plaintext
 }
 
 func errRecover() {
@@ -26,74 +106,28 @@ func errRecover() {
 	}
 }
 
-func checkMAC(message, messageMAC, key []byte) bool {
-	calcMAC := hmac.New(sha256.New, key)
-	calcMAC.Write(message)
-	expectedMAC := calcMAC.Sum(nil)
-
-	return hmac.Equal(messageMAC, expectedMAC)
-}
-
-// Got some hints from https://golang.org/pkg/crypto/cipher/#NewCFBEncrypter
-
 func main() {
 	defer errRecover()
 
-	input := bufio.NewReader(os.Stdin)
+	var plaintext, key []byte
 
-	fmt.Print("Enter a string to encrypt> ")
-	raw, e := input.ReadString('\n')
-	errCheck(e)
+	kFlag := flag.String("k", "", "Use this option to provide your own encryption key as a hexadecimal string. Otherwise a key will be generated for you.")
+	flag.Parse()
 
-	plaintext := []byte(strings.TrimSpace(raw))
-	fmt.Println("Your string's bytes:")
-	fmt.Printf("%x\n\n", plaintext)
-
-	key, e := hex.DecodeString("42ba23df786863eaccd3a8ab34673245")
-	errCheck(e)
-	macKey, e := hex.DecodeString("ac82e7e4f9e2ab7483cc76dc37abfe29")
-	errCheck(e)
-
-	aesCipher, e := aes.NewCipher(key)
-	errCheck(e)
-	fmt.Printf("Using AES key: %x\n     HMAC key: %x\n\n", key, macKey)
-
-	ciphertext := make([]byte, aes.BlockSize+len(plaintext))
-	iv := ciphertext[:aes.BlockSize]
-	_, e = io.ReadFull(rand.Reader, iv)
-	errCheck(e)
-
-	fmt.Print("Encrypting your string...")
-	eStream := cipher.NewCFBEncrypter(aesCipher, iv)
-	eStream.XORKeyStream(ciphertext[aes.BlockSize:], plaintext)
-	fmt.Println(" done.")
-	fmt.Println("Your string's bytes, but encrypted:")
-	fmt.Printf("%x\n\n", ciphertext)
-
-	fmt.Print("Computing MAC on the ciphertext...")
-	mac := hmac.New(sha256.New, macKey)
-	mac.Write(ciphertext)
-	macBytes := mac.Sum(nil)
-	fmt.Println(" done.")
-	fmt.Println("The MAC for this ciphertext is:")
-	fmt.Printf("%x\n\n", macBytes)
-
-	fmt.Print("Verifying the ciphertext's MAC...")
-	str := " NOT verified!"
-	if checkMAC(ciphertext, macBytes, macKey) {
-		str = " verified."
+	if *kFlag != "" {
+		key = parseKey(*kFlag)
+	} else {
+		key = randomKey()
 	}
-	fmt.Println(str)
 
-	newPlaintext := make([]byte, len(ciphertext)-aes.BlockSize)
-	fmt.Print("Decrypting with the same key...")
-	if len(ciphertext) < aes.BlockSize {
-		panic("ciphertext is too short!")
+	if args := flag.Args(); len(args) > 0 {
+		plaintext = []byte(args[0])
+	} else {
+		plaintext = promptForPlaintext()
 	}
-	dStream := cipher.NewCFBDecrypter(aesCipher, ciphertext[:aes.BlockSize])
-	dStream.XORKeyStream(newPlaintext, ciphertext[aes.BlockSize:])
-	fmt.Println(" done.")
-	fmt.Println("The string's bytes, de-encrypted:")
-	fmt.Printf("%x\n", newPlaintext)
-	fmt.Println("As a string:", string(newPlaintext))
+
+	ciphertext := Encrypt(plaintext, key, randomNonce())
+
+	fmt.Println("Encrypted value:")
+	fmt.Printf("%x\n", ciphertext)
 }
