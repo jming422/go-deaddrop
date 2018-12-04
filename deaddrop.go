@@ -12,14 +12,14 @@ import (
 	"strings"
 )
 
-func promptForPlaintext() []byte {
+func promptForPlaintext(message string) string {
 	input := bufio.NewReader(os.Stdin)
 	var (
 		raw string
 		e   error
 	)
 
-	fmt.Print("Enter a string to encrypt> ")
+	fmt.Printf("%s> ", message)
 	for needInput := true; needInput; {
 		if raw, e = input.ReadString('\n'); e != nil {
 			fmt.Println("Error reading input string!", e)
@@ -28,13 +28,17 @@ func promptForPlaintext() []byte {
 		}
 	}
 
-	return []byte(strings.TrimSpace(raw))
+	return strings.TrimSpace(raw)
 }
 
-func parseKey(input string) []byte {
+func promptForHexString(message string) []byte {
+	return parseHex(promptForPlaintext(message))
+}
+
+func parseHex(input string) []byte {
 	key, e := hex.DecodeString(input)
 	if e != nil {
-		panic(fmt.Sprintln("Error parsing your encryption key! Please provide a string of even length with only hexadecimal characters."))
+		panic(fmt.Sprintln("Error parsing input! Please provide a string of even length with only hexadecimal characters."))
 	}
 
 	return key
@@ -58,6 +62,7 @@ func randomNonce() []byte {
 		panic(fmt.Sprintln("Error generating MAC key!", e))
 	}
 
+	fmt.Printf("Using random nonce: %x\n", nonce)
 	return nonce
 }
 
@@ -109,25 +114,52 @@ func errRecover() {
 func main() {
 	defer errRecover()
 
-	var plaintext, key []byte
+	var key, input, nonce []byte
 
+	eFlag := flag.Bool("e", false, "Encryption mode")
+	dFlag := flag.Bool("d", false, "Decryption mode")
 	kFlag := flag.String("k", "", "Use this option to provide your own encryption key as a hexadecimal string. Otherwise a key will be generated for you.")
 	flag.Parse()
 
+	if *eFlag && *dFlag {
+		fmt.Println("You may supply only one of -e and -d!")
+		fmt.Println("It's not very helpful to simultaneously encrypt and decrypt, now is it?")
+		return
+	}
+
 	if *kFlag != "" {
-		key = parseKey(*kFlag)
+		key = parseHex(*kFlag)
 	} else {
 		key = randomKey()
 	}
 
-	if args := flag.Args(); len(args) > 0 {
-		plaintext = []byte(args[0])
+	args := flag.Args()
+	if len(args) > 0 {
+		input = []byte(args[0])
+
+		if len(args) > 1 {
+			nonce = parseHex(args[1])
+		} else if !*dFlag {
+			nonce = randomNonce()
+		} else {
+			nonce = promptForHexString("Enter the nonce to use")
+		}
+
+	} else if !*dFlag {
+		input = []byte(promptForPlaintext("Enter a string to encrypt"))
+		nonce = randomNonce()
 	} else {
-		plaintext = promptForPlaintext()
+		input = []byte(promptForPlaintext("Enter a string to decrypt"))
+		nonce = promptForHexString("Enter the nonce to use")
 	}
 
-	ciphertext := Encrypt(plaintext, key, randomNonce())
-
-	fmt.Println("Encrypted value:")
-	fmt.Printf("%x\n", ciphertext)
+	if *dFlag {
+		output := Decrypt(input, key, nonce)
+		fmt.Println("Decrypted value:")
+		fmt.Printf("%x\n", output)
+	} else {
+		output := Encrypt(input, key, nonce)
+		fmt.Println("Encrypted value:")
+		fmt.Printf("%x\n", output)
+	}
 }
