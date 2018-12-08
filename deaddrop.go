@@ -114,46 +114,48 @@ func errRecover() {
 func main() {
 	defer errRecover()
 
-	var key, input, nonce []byte
+	var (
+		key, input, nonce []byte
+		eFlag, dFlag      bool
+		kFlag, nFlag      string
+	)
 
-	eFlag := flag.Bool("e", false, "Encryption mode")
-	dFlag := flag.Bool("d", false, "Decryption mode")
-	kFlag := flag.String("k", "", "Use this option to provide your own encryption key as a hexadecimal string. Otherwise a key will be generated for you.")
+	flag.BoolVar(&eFlag, "e", false, "Encryption mode")
+	flag.BoolVar(&dFlag, "d", false, "Decryption mode")
+	flag.StringVar(&kFlag, "k", "", "Use this option to provide your own encryption key as a hexadecimal string. Otherwise a key will be generated for you.")
+	flag.StringVar(&nFlag, "n", "", "Use this option to provide your own nonce for the encryption/decryption. This number must be 12 bytes long and unique for all time for a given key.")
 	flag.Parse()
 
-	if *eFlag && *dFlag {
+	if eFlag && dFlag {
 		fmt.Println("You may supply only one of -e and -d!")
 		fmt.Println("It's not very helpful to simultaneously encrypt and decrypt, now is it?")
 		return
 	}
 
-	if *kFlag != "" {
-		key = parseHex(*kFlag)
+	if kFlag != "" {
+		key = parseHex(kFlag)
 	} else {
 		key = randomKey()
+	}
+
+	if nFlag != "" {
+		nonce = parseHex(nFlag)
+	} else if !dFlag {
+		nonce = randomNonce()
+	} else {
+		nonce = promptForHexString("Enter the nonce to use")
 	}
 
 	args := flag.Args()
 	if len(args) > 0 {
 		input = []byte(args[0])
-
-		if len(args) > 1 {
-			nonce = parseHex(args[1])
-		} else if !*dFlag {
-			nonce = randomNonce()
-		} else {
-			nonce = promptForHexString("Enter the nonce to use")
-		}
-
-	} else if !*dFlag {
+	} else if !dFlag {
 		input = []byte(promptForPlaintext("Enter a string to encrypt"))
-		nonce = randomNonce()
 	} else {
 		input = []byte(promptForPlaintext("Enter a string to decrypt"))
-		nonce = promptForHexString("Enter the nonce to use")
 	}
 
-	if *dFlag {
+	if dFlag {
 		output := Decrypt(input, key, nonce)
 		fmt.Println("Decrypted value:")
 		fmt.Printf("%x\n", output)
