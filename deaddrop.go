@@ -50,7 +50,7 @@ func randomKey() []byte {
 	if e != nil {
 		panic(fmt.Sprintln("Error generating AES key!", e))
 	}
-	fmt.Println("Generated random encryption key.")
+	fmt.Printf("Generated random encryption key: %x\n", key)
 
 	return key
 }
@@ -62,7 +62,7 @@ func randomNonce() []byte {
 		panic(fmt.Sprintln("Error generating MAC key!", e))
 	}
 
-	fmt.Printf("Using random nonce: %x\n", nonce)
+	fmt.Printf("Generated random nonce: %x\n", nonce)
 	return nonce
 }
 
