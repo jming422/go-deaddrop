@@ -152,13 +152,13 @@ func main() {
 	} else if !dFlag {
 		input = []byte(promptForPlaintext("Enter a string to encrypt"))
 	} else {
-		input = []byte(promptForPlaintext("Enter a string to decrypt"))
+		input = promptForHexString("Enter a string to decrypt")
 	}
 
 	if dFlag {
 		output := Decrypt(input, key, nonce)
 		fmt.Println("Decrypted value:")
-		fmt.Printf("%x\n", output)
+		fmt.Printf("%s\n", output)
 	} else {
 		output := Encrypt(input, key, nonce)
 		fmt.Println("Encrypted value:")
